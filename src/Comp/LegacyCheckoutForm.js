@@ -1,11 +1,13 @@
 import Card from "./Card";
 import React, { useEffect, useState } from "react";  
+import ReactJson from 'react-json-view'
 import { useStripe, useElements , CardNumberElement, CardCvcElement, CardExpiryElement } from "@stripe/react-stripe-js";
 
 export default function CheckoutForm() {
   const stripe = useStripe();
   const elements = useElements();
 
+  const [charge, setCharge] = useState(undefined);
   const [buyerFirstName, setBuyerFirstName] = useState("shreyas");
   const [buyerLastName, setBuyerLastName] = useState("patange");
   const [buyerPhone, setBuyerPhone] = useState("12321321321");
@@ -14,61 +16,78 @@ export default function CheckoutForm() {
   const [purchaseType, setPurchaseType] = useState('MY_SELF');
   const [noOfParticipants, setNoOfParticipants] = useState(1);
 
+  //LOCAL
   const [eventID, setEventID] = useState("01J32JXM4YBA13H0B7EY29XMPE");
-  const [courseID, setCourseID] = useState("01J32JPCRYPH75VNYB6BYTKZ6X");
   const [currencyID, setCurrencyID] = useState("01J32JQWMXD80QBHXRTQATYNM7");
-  const [taxID, setTaxID] = useState(undefined);
-  const [couponID, setCouponID] = useState(undefined);
+  const [taxID, setTaxID] = useState("01J338AWEGGTV28ZRHVKPB3M22");
+  const [couponCode, setCouponCode] = useState("aaaa");
+
+  //STG
+  // const [eventID, setEventID] = useState("01J2V437XP4AXVEHQDH8PBTKPB");
+  // const [currencyID, setCurrencyID] = useState("01J32JQWMXD80QBHXRTQATYNM7");
+  // const [tax , setTax] = useState(undefined);
+  // const [coupon , setCoupon] = useState("01J3317TZJCEERDY2GMRGP3CQD");
+
 
   const [event , setEvent] = useState(undefined);
-  const [course , setCourse] = useState(undefined);
   const [currency , setCurrency] = useState(undefined);
   const [tax , setTax] = useState(undefined);
   const [coupon , setCoupon] = useState(undefined);
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerName, setCustomerName] = useState("shreyas");
+  const [customerEmail, setCustomerEmail] = useState("sss@gmail.com");
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [event, course, currency, tax, coupon] = await Promise.all([
+        //Local
+        const [event, currency, tax, coupon] = await Promise.all([
           fetch(`http://localhost:3029/dev/event/${eventID}`).then(res => res.json()),
-          fetch(`http://localhost:3019/dev/course/${courseID}`).then(res => res.json()),
           fetch(`http://localhost:3023/dev/currency/${currencyID}`).then(res => res.json()),
           taxID ? fetch(`http://localhost:3021/dev/tax/${taxID}`).then(res => res.json()) : Promise.resolve(undefined),
-          couponID ? fetch(`http://localhost:3027/dev/coupon/${couponID}`).then(res => res.json()) : Promise.resolve(undefined)
+          couponCode ? fetch(`http://localhost:3027/dev/coupon/with-code/${couponCode}`).then(res => res.json()) : Promise.resolve(undefined)
         ]);
+
+        //STG
+        // const [event,currency, tax, coupon] = await Promise.all([
+        //   fetch(`https://zfwppq9jk2.execute-api.us-east-1.amazonaws.com/stg/event/${eventID}`).then(res => res.json()),
+        //   fetch(`https://zfwppq9jk2.execute-api.us-east-1.amazonaws.com/stg/currency/${currencyID}`).then(res => res.json()),
+        //   taxID ? fetch(`https://zfwppq9jk2.execute-api.us-east-1.amazonaws.com/stg/tax/${taxID}`).then(res => res.json()) : Promise.resolve(undefined),
+        //   couponCode ? fetch(`https://zfwppq9jk2.execute-api.us-east-1.amazonaws.com/stg/coupon/${couponCode}`).then(res => res.json()) : Promise.resolve(undefined)
+        // ]);
   
         setEvent(event.data.event);
-        setCourse(course.data.course);
         setCurrency(currency.data.currency);
-        setTax(tax?.data);
-        setCoupon(coupon?.data);
+        setTax(tax?.data?.tax);
+        setCoupon(coupon?.data?.coupon);
+
       } catch (error) {
         console.error("Error fetching data: ", error);
       }
     };
   
     fetchData();
-  }, [eventID, courseID, currencyID, taxID, couponID]);
+  }, [eventID , currencyID, taxID, couponCode]);
   
   
 
   async function stripeTokenHandler(token) {
     try {
 
-      console.log(event)
-      console.log(course)
-      console.log(currency)
+      console.log("event" , event)
+      console.log("currency" , currency)
+      console.log("tax" , tax)
+      console.log("coupon" , coupon)
 
       const eventAmount = event.eventPrice.filter(price => price.currencyID === currencyID)[0].earlyBirdPrice * 100;
       const totalAmount = eventAmount * noOfParticipants;
-      const couponAmount =  couponID ? coupon.couponType === 'FIXED' ? (coupon.couponAmount * 100) : totalAmount * coupon.couponAmount : 0;
+
+      const couponAmount =  couponCode ? coupon.couponType === 'FIXED' ? (coupon.couponAmount * 100) : totalAmount * (coupon.couponAmount / 100) : 0;
+
+      
       const taxPercentage = taxID ? tax.taxPercentage : 0;
 
-      const taxAmount = (totalAmount - couponAmount) * taxPercentage;
-
+      const taxAmount = taxPercentage ? (totalAmount - couponAmount) * (taxPercentage / 100) : 0;
 
       const calculatedAmount = (totalAmount - couponAmount) + taxAmount;
   
@@ -79,28 +98,6 @@ export default function CheckoutForm() {
         taxAmount : taxAmount,
         couponAmount : couponAmount
       }
-  
-      console.log({
-        buyerFirstName,
-        buyerLastName,
-        buyerPhone,
-        buyerEmail,
-  
-        purchaseType,
-        orderInfo,
-  
-        eventID,
-        courseID,
-        currencyID,
-        taxID,
-        couponID,
-  
-        paymentData : {
-          token: token.id,
-          customerName,
-          customerEmail
-        }
-      })
   
       const response = await fetch('http://localhost:3053/dev/payment-service/stripe/charge', {
         method: 'POST',
@@ -117,10 +114,9 @@ export default function CheckoutForm() {
           orderInfo,
   
           eventID,
-          courseID,
           currencyID,
           taxID,
-          couponID,
+          couponID : couponCode ? coupon.id : undefined,
   
           paymentData : {
             token: token.id,
@@ -129,8 +125,10 @@ export default function CheckoutForm() {
           }
         }),
       });
-    
-      return response.json();
+      
+      const data = await response.json()
+      setCharge(data);
+      return data;
 
     } catch (error) {
       console.log(error)
@@ -155,6 +153,7 @@ export default function CheckoutForm() {
   };
 
   return (
+    <>
     <form onSubmit={handleSubmit}>
         <Card />
 
@@ -169,5 +168,13 @@ export default function CheckoutForm() {
 
         <button type="submit" disabled={!stripe}>Confirm order</button>
     </form>
+
+    <h2>Charge</h2>
+    {
+      charge && <ReactJson src={event} />
+    }
+
+    </>
+
   );
 }
